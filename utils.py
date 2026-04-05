@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 import subprocess
 import tempfile
@@ -237,6 +239,47 @@ def _split_wav_disjoint_segments_ffmpeg(
     if not segments:
         raise RuntimeError("ffmpeg 세그먼트 분할 결과 파일을 찾지 못했습니다.")
     return segments
+
+
+def split_mono_float32_into_segments(
+    audio: np.ndarray,
+    segment_seconds: float,
+    *,
+    sample_rate: int = 16000,
+    overlap_seconds: float = 0.0,
+    min_chunk_seconds: float = 0.3,
+) -> list[np.ndarray]:
+    """
+    이미 메모리에 있는 mono float32 [-1,1] 오디오를 고정 길이로 잘라 numpy 배열 목록으로 반환합니다.
+    ffmpeg 임시 파일 없이 슬라이스만 사용합니다.
+    """
+    audio = np.asarray(audio, dtype=np.float32).reshape(-1)
+    if audio.size == 0:
+        return []
+    seg_s = float(segment_seconds)
+    if seg_s <= 0:
+        return []
+    overlap_s = max(0.0, float(overlap_seconds))
+    seg_samples = max(1, int(seg_s * sample_rate))
+    min_samples = max(1, int(float(min_chunk_seconds) * sample_rate))
+    hop_samples = seg_samples
+    if overlap_s > 0.0:
+        hop_s = seg_s - overlap_s
+        if hop_s <= 0:
+            raise ValueError("overlap_seconds must be smaller than segment_seconds")
+        hop_samples = max(1, int(hop_s * sample_rate))
+
+    out: list[np.ndarray] = []
+    start = 0
+    n = audio.size
+    while start < n:
+        end = min(start + seg_samples, n)
+        if end - start >= min_samples:
+            out.append(np.ascontiguousarray(audio[start:end], dtype=np.float32))
+        if end >= n:
+            break
+        start += hop_samples
+    return out
 
 
 def safe_remove_file(path: str | None) -> None:
